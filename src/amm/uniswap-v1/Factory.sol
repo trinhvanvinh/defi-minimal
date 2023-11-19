@@ -18,4 +18,11 @@ contract Factory {
         exchanges[tokenAddress] = address(exchange);
         exchangeAddress = address(exchange);
     }
+
+    function getExchange(
+        address tokenAddress
+    ) public view returns (address exchangeAddress) {
+        exchangeAddress = exchanges[tokenAddress];
+        require(exchangeAddress != address(0), "Exchange does exists");
+    }
 }
