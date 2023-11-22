@@ -53,4 +53,41 @@ contract Lending is ReentrancyGuard, Ownable {
         uint256 halfDebtInEth,
         address liquidator
     );
+
+    modifier isAllowedtoken(address token) {
+        if (s_tokenToPriceFeed[token] == address(0))
+            revert TokenNotAllowed(token);
+        _;
+    }
+
+    modifier moreThanZero(uint256 amount) {
+        if (amount == 0) {
+            revert NeedsMoreThanZero();
+        }
+        _;
+    }
+
+    function setAllowedToken(
+        address token,
+        address priceFeed
+    ) external onlyOwner {
+        bool foundToken = false;
+        uint256 allowedTokensLength = s_allowedTokens.length;
+        for (uint256 index = 0; index < allowedTokensLength; index++) {
+            if (s_allowedTokens[index] == token) {
+                foundToken = true;
+                break;
+            }
+        }
+        if (!foundToken) {
+            s_allowedTokens.push(token);
+        }
+        s_tokenToPriceFeed[token] = priceFeed;
+        emit AllowedTokenSet(token, priceFeed);
+    }
+
+    function deposit(
+        address token,
+        uint256 amount
+    ) external nonReentrant isAll {}
 }
