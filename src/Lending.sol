@@ -86,6 +86,82 @@ contract Lending is ReentrancyGuard, Ownable {
         emit AllowedTokenSet(token, priceFeed);
     }
 
+    function deposit(
+        address token,
+        uint256 amount
+    ) external nonReentrant isAllowedtoken(token) moreThanZero(amount) {
+        emit Deposit(msg.sender, token, amount);
+        s_accountToTokenDeposits[msg.sender][token] += amount;
+        bool success = IERC20(token).transferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        if (!success) revert TransferFailed();
+    }
+
+    function withdraw(
+        address token,
+        uint256 amount
+    ) external nonReentrant moreThanZero(amount) {
+        require(
+            s_accountToTokenDeposits[msg.sender][token] >= amount,
+            "Not enough funds"
+        );
+        emit Withdraw(account, token, amount);
+        _pullFunds(msg.sender, token, amount);
+        require(
+            healthFactor(msg.sender) >= MIN_HEALH_FACTOR,
+            "Platform will go insolvent"
+        );
+    }
+
+    function borrow(
+        address token,
+        uint256 amount
+    ) external nonReentrant isAllowedtoken(token) moreThanZero(amount) {
+        require(
+            IERC20(token).balanceOf(address(this)) >= amount,
+            "Not enough tokens to borrow"
+        );
+        s_accountToTokenBorrows[msg.sender][token] += amount;
+        emit Borrow(msg.sender, token, amount);
+        bool success = IERC20(token).transfer(msg.sender, amount);
+        if (!success) revert TransferFailed();
+        require(
+            healthFactor(msg.sender) >= MIN_HEALTH_FACTOR,
+            "Flatform will go insolvent"
+        );
+    }
+
+    function liquidate(
+        address account,
+        address repayToken,
+        address rewardToken
+    ) external nonReentrant {
+        require(
+            healthFactor(account) < MIN_HEALTH_FACTOR,
+            "Account can't be liquidated"
+        );
+        uint256 halfDebt = s_accountToTokenBorrows[account][repayToken] / 2;
+        uint256 halfDebInEth = getEthValue(repayToken, halfDebt);
+        require(halfDebInEth > 0, "Choose a different repaytoken");
+        uint256 rewardAmountInEth = (halfDebInEth * LIQUIDATION_REWARD) / 100;
+        uint256 totalRewardAmountInRewardToken = getTokenValueFromEth(
+            rewardToken,
+            rewardAmountInEth + halfDebInEth
+        );
+        emit Liquidate(
+            account,
+            repayToken,
+            rewardToken,
+            halfDebtInEth,
+            msg.sender
+        );
+        _repay(account, repayToken, halfDebt);
+        _pullFunds(account, repayToken, totalRewardAmountInRewardToken);
+    }
+
     function repay(
         address token,
         uint256 amount
