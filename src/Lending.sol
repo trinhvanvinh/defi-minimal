@@ -86,8 +86,128 @@ contract Lending is ReentrancyGuard, Ownable {
         emit AllowedTokenSet(token, priceFeed);
     }
 
+    function repay(
+        address token,
+        uint256 amount
+    ) external nonReentrant isAllowedtoken(token) moreThanZero(amount) {
+        emit Repay(msg.sender, token, amount);
+        _repay(msg.sender, token, amount);
+    }
+
+    function _repay(address account, address token, uint256 amount) private {
+        s_accountToTokenBorrows[account][token] -= amount;
+        bool success = IERC20(token).transferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        if (!success) revert TransferFailed();
+    }
+
     function deposit(
         address token,
         uint256 amount
-    ) external nonReentrant isAll {}
+    ) external nonReentrant isAllowedtoken(token) moreThanZero(amount) {
+        emit Deposit(msg.sender, token, amount);
+        s_accountToTokenDeposits[msg.sender][token] += amount;
+        bool success = IERC20(token).transferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        if (!success) revert TransferFailed();
+    }
+
+    function withdraw(
+        address token,
+        uint256 amount
+    ) external nonReentrant moreThanZero(amount) {
+        require(
+            s_accountToTokenDeposits[msg.sender][token] >= amount,
+            "Not enough funds"
+        );
+        emit Withdraw(msg.sender, token, amount);
+        _pullFunds(msg.sender, token, amount);
+        require(condition);
+    }
+
+    function healthFactor(address account) public view returns (uint256) {
+        (
+            uint256 borrowedValueInEth,
+            uint256 collateralValueInEth
+        ) = getAccountInformation(account);
+    }
+
+    function getAccountInformation(
+        address user
+    )
+        public
+        view
+        returns (uint256 borrowedValueInETH, uint256 collateralValueInETH)
+    {
+        borrowedValueInETH = getAccountBorrowedValue(user);
+        collateralValueInETH = getAccountCollateralValue(user);
+    }
+
+    function getAccountCollateralValue(
+        address user
+    ) public view returns (uint256) {
+        uint256 totalCollateralValueInETH = 0;
+        for (uint256 index = 0; index < s_allowedTokens.length; index++) {
+            address token = s_allowedTokens[index];
+            uint256 amount = s_accountToTokenDeposits[user][token];
+            uint256 valueInETH = getEthValue(token, amount);
+            totalCollateralValueInETH += valueInETH;
+        }
+        return totalCollateralValueInETH;
+    }
+
+    function getAccountBorrowedValue(
+        address user
+    ) public view returns (uint256) {
+        uint256 totalBorrowsValueInETH = 0;
+        for (uint256 index = 0; index < s_allowedTokens.length; index++) {
+            address token = s_allowedTokens[index];
+            uint256 amount = s_accountToTokenBorrows[user][token];
+            uint256 valueInEth = getEthValue(token, amount);
+            totalBorrowsValueInETH += valueInEth;
+        }
+        return totalBorrowsValueInETH;
+    }
+
+    function getEthValue(
+        address token,
+        uint256 amount
+    ) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(
+            s_tokenToPriceFeed[token]
+        );
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        return (uint256(price) * amount) / 1e18;
+    }
+
+    function getTokenValueFromEth(
+        address token,
+        uint256 amount
+    ) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(
+            s_tokenToPriceFeed[token]
+        );
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        return (amount * 1e18) / uint256(price);
+    }
+
+    function _pullFunds(
+        address account,
+        address token,
+        uint256 amount
+    ) private {
+        require(
+            s_accountToTokenDeposits[account][token] >= amount,
+            "Not enough funds to withdraw"
+        );
+        s_accountToTokenDeposits[account][token] -= amount;
+        bool success = IERC20(token).transfer(msg.sender, amount);
+        if (!success) revert TransferFailed();
+    }
 }
